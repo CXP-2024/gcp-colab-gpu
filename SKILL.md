@@ -27,6 +27,11 @@ NVIDIA open kernel driver 595, Blender 5.2.2 LTS (snap), OptiX. Scripts are in `
   - Prefer a custom image with the needed Blender version baked in; delete the VM the moment the files are verified.
   - Before renting, compare with the local GPU (RTX 5080 ≈ half a PRO 6000 for EEVEE, zero cost) and tell the user the
     estimated VM hours, egress GB and USD.
+- **US regions only by default, cheapest first.** The default zone list is US only (us-east1 and us-west1 first, then
+  us-central1, then the other US regions). Before using any non-US region (asia-east1 Taiwan, Europe, ...) **ask the
+  user first and quote both hourly prices**; only after a yes pass `-Zones ... -AllowNonUS`. The script refuses
+  non-US zones without that switch. The same applies to switching Spot to on-demand. Reason: one month of runs in
+  asia-east1 cost about 20 USD more than the same hours in the US (see "Region prices" below).
 
 ## Prerequisites
 1. Google Cloud CLI. Not necessarily on PATH (Windows: `C:\Program Files (x86)\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd`); the script finds it.
@@ -101,7 +106,7 @@ streams (1 stream ≈ 3 MB/s, 4 ≈ 10 MB/s) — but download an encoded video, 
   VM reuses an old VM's external IP; expected here.
 - Windows PowerShell shows `NativeCommandError` for harmless gcloud progress lines; judge by text and `$LASTEXITCODE`.
 - **Spot stockout is common** (us-central1 a/b/c and us-east1 returned `ZONE_RESOURCE_POOL_EXHAUSTED` at times);
-  the script walks a zone list. Quota is per region, so other regions work.
+  the script walks the US zone list. Quota is per region, so other regions work, but ask before leaving the US.
 - MMD / external-texture scenes: pack resources first (File > External Data > Pack Resources) or upload the folder.
 - A 50 GB disk is enough (about 31 GB free after OS, driver, Blender).
 - `~/render.log` of Blender under systemd contains a harmless `mkdir: missing operand` line from the snap wrapper.
@@ -118,6 +123,23 @@ real browser or enable `cloudbilling.googleapis.com` and query the Catalog API. 
 (Spot L4 was assumed 0.3, real 0.51): never quote prices from memory.
 With 300 USD: about 587 h of L4 Spot (24 days) or about 184 h of PRO 6000 Spot (7.7 days), before disk/egress and
 before any credit already used. The trial credit also expires (usually 90 days).
+
+### Region prices (Cloud Billing Catalog API, 2026-11-09; Spot varies daily)
+`g4-standard-48` Spot = GPU + 48 vCPU + 180 GiB RAM; Hyperdisk Balanced capacity per GiB-month.
+| Region | GPU Spot | vCPU Spot | RAM Spot (GiB) | **Machine total** | Hyperdisk |
+|---|---|---|---|---|---|
+| us-east1 (South Carolina) | 0.2369 | 0.01713 | 0.00206 | **about 1.43 USD/h** | 0.09 |
+| us-west1 (Oregon) | 0.2369 | 0.01713 | 0.00206 | **about 1.43 USD/h** | 0.08 |
+| us-central1 (Iowa) | 0.4706 | 0.01739 | 0.00209 | **about 1.68 USD/h** | 0.08 |
+| asia-east1 (Taiwan) | 0.6549 | 0.02791 | 0.00336 | **about 2.60 USD/h** | 0.093 |
+Taiwan is about 1.8x us-east1. On-demand G4 in Taiwan is also higher (GPU 1.42435 vs 1.09565 USD/h in the US).
+Other US regions (us-east4, us-east5, us-south1, us-west3, us-west4) were not priced; query the Catalog API
+(`https://cloudbilling.googleapis.com/v1/services/6F81-5844-456A/skus`, needs `cloudbilling.googleapis.com`)
+before relying on them.
+Custom image storage: 0.05 USD per GiB-month (US regions); billed while the image exists.
+To find what ran recently and for how long, read the Admin Activity audit log
+(`gcloud logging read ... --freshness=30d`; the default freshness is only 1 day) and pair each successful
+`instances.insert` with its `stop`/`start`/`delete` events; failed inserts (stockout retries) carry a status code.
 
 ## Measured performance (test scene: 1080p, 256 samples, glass and metals, OptiX)
 - L4: about 15.5 s/frame (about 7 s sampling, about 9 s scene prep and denoise with the GPU idle).

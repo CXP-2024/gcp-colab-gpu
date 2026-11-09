@@ -3,13 +3,18 @@ param(
     [Parameter(Mandatory)][ValidateSet('quota', 'status', 'create', 'setup', 'render', 'fetch', 'delete')][string]$Action,
     [string]$Project,
     [string]$Name = 'blender-render',
+    # US only, cheapest verified first (G4 Spot 2026-11-09: us-east1/us-west1 1.43, us-central1 1.68 USD/h;
+    # other US regions unverified). Non-US zones need -AllowNonUS, which needs the user's OK (see SKILL.md).
     [string[]]$Zones = @(
-        'us-central1-a', 'us-central1-b', 'us-central1-c',
         'us-east1-b', 'us-east1-c', 'us-east1-d',
         'us-west1-a', 'us-west1-b', 'us-west1-c',
-        'asia-east1-a', 'asia-east1-b', 'asia-east1-c',
-        'asia-northeast1-a', 'asia-northeast1-b', 'asia-northeast1-c',
-        'asia-southeast1-a', 'asia-southeast1-b', 'asia-southeast1-c'),
+        'us-central1-a', 'us-central1-b', 'us-central1-c', 'us-central1-f',
+        'us-east4-a', 'us-east4-b', 'us-east4-c',
+        'us-east5-a', 'us-east5-b', 'us-east5-c',
+        'us-south1-a', 'us-south1-b', 'us-south1-c',
+        'us-west4-a', 'us-west4-b', 'us-west4-c',
+        'us-west3-a', 'us-west3-b', 'us-west3-c'),
+    [switch]$AllowNonUS,
     [string]$Machine = 'g2-standard-8',
     [int]$DiskGB = 50,
     [string]$DiskType = 'pd-balanced',
@@ -91,6 +96,11 @@ switch ($Action) {
             $meta = @('--metadata', 'install-nvidia-driver=True')
             $imgDesc = "stock image family $image (run -Action setup afterwards)"
         }
+        $nonUS = @($Zones | Where-Object { $_ -notlike 'us-*' })
+        if ($nonUS.Count -and -not $AllowNonUS) {
+            throw ("Non-US zones requested ($($nonUS -join ', ')). They can cost much more (asia-east1 G4 Spot was 2.60 USD/h vs 1.43 in us-east1). " +
+                'Ask the user first, quoting both prices; only after a yes rerun with -AllowNonUS.')
+        }
         $model = if ($OnDemand) { 'STANDARD' } else { 'SPOT' }
         "Plan: $Machine, $model, ${DiskGB}GB $DiskType, $imgDesc, auto-stop after ${MaxHours}h, zones tried in order."
         if (-not $Yes) { 'DRY RUN. Add -Yes to create (this starts billing).'; return }
@@ -105,7 +115,8 @@ switch ($Action) {
             "$z : $reason"
             if ($out -match 'QUOTA' -or $reason -match 'QUOTA') { "Quota problem, stopping: $out"; return }
         }
-        'All zones failed (stockout). Retry later or use -OnDemand.'
+        if ($AllowNonUS) { 'All zones failed (stockout). Retry later.' }
+        else { 'All US zones failed (stockout). Retry later, or ask the user before trying a non-US region (quote its price) and rerun with -Zones <zones> -AllowNonUS. Do not switch to -OnDemand without asking either.' }
     }
 
     'setup' {
