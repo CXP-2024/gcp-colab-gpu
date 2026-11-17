@@ -1,15 +1,34 @@
 ---
-name: gcp-blender-render
-description: Rent a GPU VM on Google Cloud (Compute Engine, NVIDIA L4 or RTX PRO 6000, Spot) with the gcloud CLI, boot it from a pre-built Blender image, render headless with OptiX over SSH, download the frames, and delete the VM to stop billing. Use when the user wants to render Blender / MMD scenes on Google Cloud, use their GCP free-trial credit for rendering, check GPU quota or stockout, build or reuse the custom Blender image, or script instance create / render / delete from the command line instead of the console.
+name: gcp-colab-gpu
+description: Rent Google GPUs from the command line — Google Colab Pro+ runtimes through the official Colab CLI (T4, L4, A100, G4 = RTX PRO 6000, H100) and Google Cloud Compute Engine Spot VMs with the gcloud CLI (L4, RTX PRO 6000) — then run scripts, render Blender headless, download results and release or delete the machine to stop billing. Use when the user wants to run a GPU job on Colab or Google Cloud, check Colab compute units or GCP GPU quota / stockout / prices, render Blender or MMD scenes in the cloud, build or reuse the custom Blender image, or compare Colab and GCP cost.
 ---
 
-# Remote Blender rendering on Google Cloud (gcloud CLI)
+# Google GPUs from the command line: Colab Pro+ and Google Cloud VMs
+
+## Choose the platform first
+| | **Colab Pro+ (default for GPU scripts)** | **Google Cloud VM** |
+|---|---|---|
+| How | `scripts/colab.ps1 run --gpu G4 job.py` (official Colab CLI in WSL) | `scripts/gcp_render.ps1` (gcloud, Spot VM) |
+| RTX PRO 6000 cost | about 9 CU/h ≈ 0.76 USD/h (Pro+ CU price) | 1.43-1.68 USD/h Spot (US regions) |
+| Limits | notebook VM, no systemd, driver 580 fixed, `/content` wiped, sessions capped | full VM, own image/driver, 1 GPU quota total, stockouts |
+| Use for | training, batch generation, short GPU scripts, CUDA renders | Blender OptiX renders, services (H3 ComfyUI), baked images, long jobs |
+Full Colab guide: [references/colab.md](references/colab.md). The rest of this file is the GCP VM path.
+
+### H100 vs RTX PRO 6000 (prices 2026-11-09 Catalog API / Colab burn)
+GCP H100 Spot (`a3-highgpu-1g`, 26 vCPU, 234 GiB) is about 6.54 USD/h (GPU 5.8339 + CPU/RAM), on-demand about
+11 USD/h, i.e. 3.9-4.6x a PRO 6000 Spot. On Colab, H100 burns about 2x the CU of G4. H100 has no RT cores (no
+OptiX/EEVEE) and no FP4; it is about 2x faster only for BF16 training and bandwidth-bound inference. For a fixed
+budget, PRO 6000 / G4 does more work in every job type we run.
+
+## GCP VMs
 
 Verified end to end: `g2-standard-8` (1x L4 24 GB) and `g4-standard-48` (1x RTX PRO 6000 96 GB), Spot, Ubuntu 22.04,
 NVIDIA open kernel driver 595, Blender 5.2.2 LTS (snap), OptiX. Scripts are in `scripts/`; run with Windows PowerShell 5.1.
 
 ## Hard rules
 - **Creating a VM bills money.** Never create one unless the user asked for it in this conversation.
+  The same holds for Colab: `colab run` / `colab new` spend compute units; after any Colab job, `colab sessions`
+  must show no active session.
   `gcp_render.ps1 -Action create` is a dry run unless `-Yes` is passed.
 - **Delete the VM when done.** A stopped VM still bills for its disk. The disk is deleted with the VM, so fetch the
   frames first. `-Action delete` refuses when the VM has 0 frames (render probably failed: read `~/render.log`
